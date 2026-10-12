@@ -61,7 +61,8 @@ class DrawView(context: Context) : View(context) {
         val w = rect.width().toInt()
         val h = rect.height().toInt()
         if (w <= 0 || h <= 0) return
-        val id = SyncHub.prefs.lockBackground
+        val prefs = SyncHub.prefs
+        val id = if (!prefs.autoLock && prefs.autoHome) prefs.homeBackground else prefs.lockBackground
         Work.io.execute {
             val bmp = LockRenderer.background(context, id, w, h)
             post {

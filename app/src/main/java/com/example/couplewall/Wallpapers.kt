@@ -29,7 +29,11 @@ object Wallpapers {
         Palette("gold", "Золото", Color.rgb(255, 214, 140), Color.rgb(120, 60, 20), Color.rgb(255, 190, 70), Color.rgb(255, 120, 60), Color.rgb(255, 235, 170)),
     )
 
-    val items: List<Item> = palettes.map { Item(it.id, it.name) } + listOf(
+    /** Paired wallpapers (one photo split in two halves) live in assets/<id>.jpg. */
+    fun isAsset(id: String): Boolean = id.startsWith("pair_")
+
+    val items: List<Item> = listOf(Item("pair_him", "Парные · он"), Item("pair_her", "Парные · она")) +
+        palettes.map { Item(it.id, it.name) } + listOf(
         Item("hearts", "Сердца"), Item("stars", "Звёзды"), Item("waves", "Волны"),
         Item("bokeh", "Боке"), Item("aurora", "Аврора"),
     )

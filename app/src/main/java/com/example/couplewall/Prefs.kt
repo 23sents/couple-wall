@@ -32,6 +32,31 @@ class Prefs(ctx: Context) {
         get() = sp.getString("lockbg", "rose") ?: "rose"
         set(v) = putString("lockbg", v)
 
+    /** Wallpaper id the drawing is composed on for the home screen. */
+    var homeBackground: String
+        get() = sp.getString("homebg", "rose") ?: "rose"
+        set(v) = putString("homebg", v)
+
+    /** Keep the home screen updated with the shared drawing. */
+    var autoHome: Boolean
+        get() = sp.getBoolean("autohome", false)
+        set(v) { sp.edit().putBoolean("autohome", v).apply() }
+
+    /** Optional relay overrides entered in the app (otherwise the build-time defaults are used). */
+    var relayUrl: String?
+        get() = sp.getString("relay_url", null)
+        set(v) = putString("relay_url", v)
+
+    var relayKey: String?
+        get() = sp.getString("relay_key", null)
+        set(v) = putString("relay_key", v)
+
+    val effectiveRelayUrl: String
+        get() = (relayUrl?.takeIf { it.isNotBlank() } ?: BuildConfig.RELAY_URL).trim().trimEnd('/')
+
+    val effectiveRelayKey: String
+        get() = (relayKey?.takeIf { it.isNotBlank() } ?: BuildConfig.RELAY_KEY).trim()
+
     /** Keep the lock screen updated with the shared drawing (off until she/he turns it on). */
     var autoLock: Boolean
         get() = sp.getBoolean("autolock", false)

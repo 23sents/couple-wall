@@ -32,6 +32,17 @@ class CoreTest {
         assertNull(PairCode.normalize("U".repeat(20)))
     }
 
+    @Test fun authTokenIsStableHexAndIndependent() {
+        val a = PairCode.generate()
+        val b = PairCode.generate()
+        val t = PairCode.authToken(a)
+        assertEquals(64, t.length)
+        assertTrue(t.all { it in "0123456789abcdef" })
+        assertEquals(t, PairCode.authToken(a))
+        assertTrue(t != PairCode.authToken(b))
+        assertTrue(t != PairCode.topic(a).removePrefix("cw"))
+    }
+
     @Test fun topicAndKeyAreStableAndDifferent() {
         val a = PairCode.generate()
         val b = PairCode.generate()

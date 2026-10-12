@@ -1,0 +1,12 @@
+{
+  "name": "couple-wall-relay",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Encrypted pub/sub relay for the couple-wall app (sees only ciphertext)",
+  "main": "server.js",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test test/relay.test.js"
+  }
+}

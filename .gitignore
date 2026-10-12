@@ -2,3 +2,9 @@
 build/
 local.properties
 .idea/
+*.apk
+node_modules/
+.env
+server/data/
+*.keystore
+*.jks

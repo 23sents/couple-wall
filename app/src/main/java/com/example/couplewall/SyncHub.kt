@@ -27,8 +27,6 @@ object SyncHub {
         fun onStatusChanged(status: Status)
     }
 
-    /** Public relay; messages are end-to-end encrypted. Change to your own ntfy server if you like. */
-    private const val BASE_URL = "https://ntfy.sh"
     private const val MIN_WALLPAPER_GAP_MS = 8_000L
 
     private var appContext: Context? = null
@@ -37,7 +35,7 @@ object SyncHub {
     lateinit var store: CanvasStore
         private set
 
-    private val relay = RelayClient(BASE_URL)
+    @Volatile private var relay = RelayClient("", "")
     private val listeners = CopyOnWriteArrayList<Listener>()
     private val holders = HashSet<String>()
     private val control = ConcurrentLinkedQueue<Message>()
@@ -60,7 +58,28 @@ object SyncHub {
         prefs = Prefs(c)
         store = CanvasStore(File(c.filesDir, "canvas.bin")).also { it.load() }
         status = if (prefs.pairCode == null) Status.UNPAIRED else Status.OFFLINE
+        rebuildRelay()
     }
+
+    private fun rebuildRelay() {
+        relay = RelayClient(prefs.effectiveRelayUrl, prefs.effectiveRelayKey)
+    }
+
+    /** Saves a server override (blank url = back to the build-time defaults) and reconnects. */
+    @Synchronized fun setServer(url: String?, key: String?) {
+        stopThreads()
+        if (url.isNullOrBlank()) {
+            prefs.relayUrl = null
+            prefs.relayKey = null
+        } else {
+            prefs.relayUrl = url.trim().trimEnd('/')
+            if (!key.isNullOrBlank()) prefs.relayKey = key.trim()
+        }
+        rebuildRelay()
+        startIfNeeded()
+    }
+
+    val relayConfigured: Boolean get() = relay.isConfigured
 
     val isPaired: Boolean get() = prefs.pairCode != null
 
@@ -95,6 +114,7 @@ object SyncHub {
         prefs.pairCode = null
         prefs.lastMessageId = null
         prefs.autoLock = false
+        prefs.autoHome = false
         control.clear()
         setStatus(Status.UNPAIRED)
     }
@@ -151,10 +171,11 @@ object SyncHub {
             val code = prefs.pairCode ?: return
             val topic = PairCode.topic(code)
             val key = PairCode.key(code)
+            val token = PairCode.authToken(code)
             setStatus(Status.CONNECTING)
             try {
                 relay.subscribe(
-                    topic, prefs.lastMessageId ?: "all",
+                    topic, token, prefs.lastMessageId ?: "all",
                     active = { gen == generation },
                     onOpen = { if (gen == generation) { setStatus(Status.ONLINE); backoff = 2_000L } },
                     onMessage = { id, text -> if (gen == generation) handleIncoming(id, text, key) },
@@ -174,16 +195,17 @@ object SyncHub {
             val code = prefs.pairCode ?: return
             val topic = PairCode.topic(code)
             val key = PairCode.key(code)
+            val token = PairCode.authToken(code)
             var ok = true
             while (ok) {
                 val msg = control.peek() ?: break
-                ok = relay.publish(topic, Protocol.seal(msg, key))
+                ok = relay.publish(topic, token, Protocol.seal(msg, key))
                 if (ok) control.poll()
             }
             if (ok) {
                 for (packed in Protocol.pack(store.unsent(), key)) {
                     if (gen != generation) return
-                    if (relay.publish(topic, packed.text)) {
+                    if (relay.publish(topic, token, packed.text)) {
                         store.markSent(packed.strokes.map { it.id })
                     } else {
                         ok = false
@@ -234,7 +256,7 @@ object SyncHub {
     }
 
     @Synchronized private fun scheduleWallpaper(delayMs: Long) {
-        if (!prefs.autoLock || appContext == null) return
+        if (!(prefs.autoLock || prefs.autoHome) || appContext == null) return
         wallpaperTask?.cancel(false)
         val gap = MIN_WALLPAPER_GAP_MS - (System.currentTimeMillis() - lastWallpaperAt)
         val wait = max(delayMs, gap).coerceAtLeast(0L)
@@ -245,7 +267,12 @@ object SyncHub {
         val c = appContext ?: return
         lastWallpaperAt = System.currentTimeMillis()
         try {
-            LockRenderer.applyLock(c, prefs.lockBackground, store.snapshot())
+            LockRenderer.applyDrawing(
+                c,
+                if (prefs.autoLock) prefs.lockBackground else null,
+                if (prefs.autoHome) prefs.homeBackground else null,
+                store.snapshot(),
+            )
         } catch (e: Exception) {
             // wallpaper service busy or permission problem: the next change retries
         }

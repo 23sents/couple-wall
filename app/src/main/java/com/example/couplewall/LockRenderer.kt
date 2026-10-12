@@ -40,13 +40,29 @@ object LockRenderer {
         val stamp = if (id == "custom") customFile(ctx).lastModified() else 0L
         val key = "$id:$w:$h:$stamp"
         cache[key]?.let { if (!it.isRecycled) return it }
-        val bmp = if (id == "custom" && customFile(ctx).exists()) {
-            BitmapFactory.decodeFile(customFile(ctx).path)?.let { fit(it, w, h) } ?: Wallpapers.render("rose", w, h)
-        } else {
-            Wallpapers.render(id, w, h)
+        val bmp = when {
+            id == "custom" && customFile(ctx).exists() ->
+                BitmapFactory.decodeFile(customFile(ctx).path)?.let { fit(it, w, h) } ?: Wallpapers.render("rose", w, h)
+            Wallpapers.isAsset(id) -> assetBackground(ctx, id, w, h)
+            else -> Wallpapers.render(id, w, h)
         }
         cache[key] = bmp
         return bmp
+    }
+
+    private fun assetBackground(ctx: Context, id: String, w: Int, h: Int): Bitmap {
+        val name = "$id.jpg"
+        return try {
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            ctx.assets.open(name).use { BitmapFactory.decodeStream(it, null, bounds) }
+            var sample = 1
+            while (bounds.outWidth / (sample * 2) >= w && bounds.outHeight / (sample * 2) >= h) sample *= 2
+            val opts = BitmapFactory.Options().apply { inSampleSize = sample }
+            val src = ctx.assets.open(name).use { BitmapFactory.decodeStream(it, null, opts) }
+            if (src != null) fit(src, w, h) else Wallpapers.render("rose", w, h)
+        } catch (e: java.io.IOException) {
+            Wallpapers.render("rose", w, h)
+        }
     }
 
     /** Background with the shared drawing on top, at full screen size. */
@@ -56,11 +72,19 @@ object LockRenderer {
         return out
     }
 
-    fun applyLock(ctx: Context, bgId: String, strokes: List<Stroke>) {
+    /** Puts background + shared drawing on the lock screen and/or the home screen. */
+    fun applyDrawing(ctx: Context, lockBg: String?, homeBg: String?, strokes: List<Stroke>) {
         val (w, h) = screenSize(ctx)
-        val bmp = render(ctx, bgId, strokes, w, h)
-        setWallpaper(ctx, bmp, WallpaperManager.FLAG_LOCK)
-        bmp.recycle()
+        if (homeBg != null) {
+            val bmp = render(ctx, homeBg, strokes, w, h)
+            setWallpaper(ctx, bmp, WallpaperManager.FLAG_SYSTEM)
+            bmp.recycle()
+        }
+        if (lockBg != null) {
+            val bmp = render(ctx, lockBg, strokes, w, h)
+            setWallpaper(ctx, bmp, WallpaperManager.FLAG_LOCK)
+            bmp.recycle()
+        }
     }
 
     fun setWallpaper(ctx: Context, bmp: Bitmap, which: Int) {

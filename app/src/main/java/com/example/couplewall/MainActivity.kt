@@ -9,6 +9,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.res.ColorStateList
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
@@ -16,17 +17,16 @@ import android.graphics.Outline
 import android.graphics.Paint
 import android.graphics.Typeface
 import android.graphics.drawable.ColorDrawable
+import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Bundle
 import android.text.InputType
-import android.text.SpannableString
-import android.text.Spanned
-import android.text.style.ForegroundColorSpan
 import android.util.LruCache
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.view.ViewOutlineProvider
+import android.view.WindowManager
 import android.widget.AbsListView
 import android.widget.BaseAdapter
 import android.widget.EditText
@@ -55,6 +55,8 @@ class MainActivity : Activity(), SyncHub.Listener {
     private lateinit var pairColumn: LinearLayout
     private lateinit var colorDots: List<ColorDot>
     private lateinit var brushView: BrushView
+    private lateinit var homeBtn: ImageView
+    private lateinit var lockBtn: ImageView
     private var chip: TextView? = null
     private var overlay: View? = null
     private var currentTab = 0
@@ -115,13 +117,17 @@ class MainActivity : Activity(), SyncHub.Listener {
             background = Glass.drawable(this@MainActivity, 28f, 0x33FFFFFF)
             setPadding(dp(6f), dp(6f), dp(6f), dp(6f))
         }
-        val labels = listOf("🖼\nОбои", "🎨\nРисунок", "💞\nПара")
+        val labels = listOf("Обои", "Рисунок", "Пара")
+        val icons = intArrayOf(R.drawable.ic_wallpaper, R.drawable.ic_brush, R.drawable.ic_heart)
         tabViews = Array(3) { i ->
             TextView(this).apply {
                 text = labels[i]
                 setTextColor(Color.WHITE)
                 textSize = 12f
                 gravity = Gravity.CENTER
+                compoundDrawablePadding = dp(2f)
+                setCompoundDrawablesWithIntrinsicBounds(0, icons[i], 0, 0)
+                compoundDrawableTintList = ColorStateList.valueOf(Color.WHITE)
                 setPadding(0, dp(6f), 0, dp(6f))
                 setOnClickListener { showTab(i) }
             }
@@ -137,9 +143,11 @@ class MainActivity : Activity(), SyncHub.Listener {
         for ((k, t) in tabViews.withIndex()) {
             t.background = if (k == i) Glass.drawable(this, 22f, 0x40FFFFFF) else null
         }
+        if (i != 2) setSecure(false)
         if (i == 1) {
             drawView.reloadBackground()
             drawView.refresh()
+            refreshToggles()
         }
         if (i == 2) refreshPair()
         updateChip()
@@ -199,10 +207,14 @@ class MainActivity : Activity(), SyncHub.Listener {
             if (id == ADD) {
                 iv.setImageDrawable(null)
                 iv.background = Glass.drawable(this@MainActivity, 20f)
-                tv.text = "＋\nСвоё фото"
+                tv.text = "Своё фото"
                 tv.gravity = Gravity.CENTER
                 tv.textSize = 16f
+                tv.compoundDrawablePadding = dp(6f)
+                tv.setCompoundDrawablesWithIntrinsicBounds(0, R.drawable.ic_add, 0, 0)
+                tv.compoundDrawableTintList = ColorStateList.valueOf(Color.WHITE)
             } else {
+                tv.setCompoundDrawables(null, null, null, null)
                 iv.background = null
                 iv.setImageDrawable(null)
                 tv.text = Wallpapers.nameOf(id)
@@ -293,7 +305,7 @@ class MainActivity : Activity(), SyncHub.Listener {
             FrameLayout.LayoutParams(WRAP, WRAP, Gravity.TOP or Gravity.START).apply { setMargins(dp(22f), dp(22f), 0, 0) }
         )
         ov.addView(
-            Glass.button(this, "✕") { closePreview() }.apply { setPadding(dp(16f), dp(8f), dp(16f), dp(8f)) },
+            iconButton(R.drawable.ic_close) { closePreview() },
             FrameLayout.LayoutParams(WRAP, WRAP, Gravity.TOP or Gravity.END).apply { setMargins(0, dp(16f), dp(16f), 0) }
         )
         val buttons = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
@@ -311,7 +323,11 @@ class MainActivity : Activity(), SyncHub.Listener {
             )
         }
         buttons.addView(row, LinearLayout.LayoutParams(MATCH, WRAP))
-        val hint = if (SyncHub.isPaired) "На экране блокировки поверх обоев будет ваш общий рисунок" else "Создайте пару на вкладке «Пара», чтобы рисовать вдвоём"
+        val hint = when {
+            id.startsWith("pair_") -> "Парные обои: себе — одну половинку, партнёру — вторую. Рядом они складываются в одну картинку"
+            SyncHub.isPaired -> "Поверх обоев будет ваш общий рисунок"
+            else -> "Создайте пару на вкладке «Пара», чтобы рисовать вдвоём"
+        }
         buttons.addView(label(hint, 12f, 150).apply { gravity = Gravity.CENTER }, lp(10))
         ov.addView(
             buttons,
@@ -338,7 +354,11 @@ class MainActivity : Activity(), SyncHub.Listener {
             try {
                 val (w, h) = LockRenderer.screenSize(this)
                 if (home) {
-                    LockRenderer.setWallpaper(this, LockRenderer.background(this, id, w, h), WallpaperManager.FLAG_SYSTEM)
+                    SyncHub.prefs.homeBackground = id
+                    SyncHub.prefs.autoHome = true
+                    val bmp = LockRenderer.render(this, id, SyncHub.store.snapshot(), w, h)
+                    LockRenderer.setWallpaper(this, bmp, WallpaperManager.FLAG_SYSTEM)
+                    bmp.recycle()
                 }
                 if (lock) {
                     SyncHub.prefs.lockBackground = id
@@ -411,9 +431,13 @@ class MainActivity : Activity(), SyncHub.Listener {
             }
         }
         actions.addView(brushView, LinearLayout.LayoutParams(0, dp(44f), 1f))
-        actions.addView(actionIcon("↶") { if (!SyncHub.undo()) toast("Нечего отменять") }, LinearLayout.LayoutParams(0, dp(44f), 1f))
-        actions.addView(actionIcon("🔒") { setLockNow() }, LinearLayout.LayoutParams(0, dp(44f), 1f))
-        actions.addView(actionIcon("🗑") { confirmClear() }, LinearLayout.LayoutParams(0, dp(44f), 1f))
+        actions.addView(actionIcon(R.drawable.ic_undo) { if (!SyncHub.undo()) toast("Нечего отменять") }, LinearLayout.LayoutParams(0, dp(44f), 1f))
+        homeBtn = actionIcon(R.drawable.ic_home) { toggleHome() }
+        lockBtn = actionIcon(R.drawable.ic_lock) { toggleLock() }
+        actions.addView(homeBtn, LinearLayout.LayoutParams(0, dp(44f), 1f))
+        actions.addView(lockBtn, LinearLayout.LayoutParams(0, dp(44f), 1f))
+        actions.addView(actionIcon(R.drawable.ic_delete) { confirmClear() }, LinearLayout.LayoutParams(0, dp(44f), 1f))
+        refreshToggles()
         bar.addView(actions, LinearLayout.LayoutParams(MATCH, WRAP))
 
         f.addView(
@@ -423,18 +447,52 @@ class MainActivity : Activity(), SyncHub.Listener {
         return f
     }
 
-    private fun actionIcon(symbol: String, onClick: () -> Unit) = TextView(this).apply {
-        text = symbol
-        textSize = 22f
-        gravity = Gravity.CENTER
-        setTextColor(Color.WHITE)
+    private fun actionIcon(res: Int, onClick: () -> Unit) = ImageView(this).apply {
+        setImageResource(res)
+        setColorFilter(Color.WHITE)
+        scaleType = ImageView.ScaleType.CENTER
         setOnClickListener { onClick() }
     }
 
-    private fun setLockNow() {
-        SyncHub.prefs.autoLock = true
-        SyncHub.flushWallpaper()
-        toast("Рисунок ставится на экран блокировки")
+    private fun iconButton(res: Int, onClick: () -> Unit) = ImageView(this).apply {
+        setImageResource(res)
+        setColorFilter(Color.WHITE)
+        background = Glass.drawable(this@MainActivity, 24f, 0x24FFFFFF)
+        setPadding(dp(12f), dp(12f), dp(12f), dp(12f))
+        setOnClickListener { onClick() }
+    }
+
+    private fun refreshToggles() {
+        if (!::homeBtn.isInitialized) return
+        homeBtn.alpha = if (SyncHub.prefs.autoHome) 1f else 0.4f
+        lockBtn.alpha = if (SyncHub.prefs.autoLock) 1f else 0.4f
+    }
+
+    private fun toggleHome() {
+        val on = !SyncHub.prefs.autoHome
+        SyncHub.prefs.autoHome = on
+        if (on) SyncHub.flushWallpaper()
+        refreshToggles()
+        toast(if (on) "Рисунок ставится на главный экран" else "Главный экран больше не обновляется")
+    }
+
+    private fun toggleLock() {
+        val on = !SyncHub.prefs.autoLock
+        SyncHub.prefs.autoLock = on
+        if (on) SyncHub.flushWallpaper()
+        refreshToggles()
+        toast(if (on) "Рисунок ставится на экран блокировки" else "Экран блокировки больше не обновляется")
+    }
+
+    private fun setSecure(on: Boolean) {
+        if (on) window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
+        else window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+    }
+
+    private fun dot(color: Int) = GradientDrawable().apply {
+        shape = GradientDrawable.OVAL
+        setColor(color)
+        setSize(dp(10f), dp(10f))
     }
 
     private fun confirmClear() {
@@ -454,9 +512,9 @@ class MainActivity : Activity(), SyncHub.Listener {
             SyncHub.Status.ONLINE -> "на связи" to Color.rgb(48, 209, 88)
             SyncHub.Status.OFFLINE -> "нет связи" to Color.rgb(142, 142, 147)
         }
-        val s = SpannableString("●  $text")
-        s.setSpan(ForegroundColorSpan(color), 0, 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-        c.text = s
+        c.text = text
+        c.compoundDrawablePadding = dp(8f)
+        c.setCompoundDrawablesWithIntrinsicBounds(dot(color), null, null, null)
     }
 
     // ------------------------------------------------------------------ pairing tab
@@ -475,6 +533,7 @@ class MainActivity : Activity(), SyncHub.Listener {
         col.removeAllViews()
         col.addView(label("Пара", 30f, bold = true), lp())
         val code = SyncHub.prefs.pairCode
+        setSecure(code != null)
         if (code == null) {
             col.addView(
                 label("Создайте пару и отправьте код любимому человеку — или введите его код. Рисунок зашифрован: видите его только вы двое.", 14f, 180),
@@ -505,6 +564,7 @@ class MainActivity : Activity(), SyncHub.Listener {
                 Glass.button(this, "Вставить из буфера") { clipboardText()?.let { input.setText(it) } },
                 lp(10)
             )
+            addServerCard(col)
             return
         }
 
@@ -515,12 +575,19 @@ class MainActivity : Activity(), SyncHub.Listener {
         }
         card.addView(label("КОД ПАРЫ", 12f, 150).apply { letterSpacing = 0.15f }, lp())
         card.addView(label(PairCode.format(code), 20f, bold = true).apply { setTextIsSelectable(true) }, lp(6))
-        val (statusText, _) = when (SyncHub.status) {
-            SyncHub.Status.ONLINE -> "● на связи" to 0
-            SyncHub.Status.CONNECTING -> "● подключение…" to 0
-            else -> "● нет связи" to 0
+        val (statusText, statusColor) = when (SyncHub.status) {
+            SyncHub.Status.ONLINE -> "на связи" to Color.rgb(48, 209, 88)
+            SyncHub.Status.CONNECTING -> "подключение…" to Color.rgb(255, 214, 10)
+            else -> "нет связи" to Color.rgb(142, 142, 147)
         }
-        card.addView(label(statusText, 14f, 200), lp(10))
+        card.addView(
+            label(statusText, 14f, 200).apply {
+                compoundDrawablePadding = dp(8f)
+                setCompoundDrawablesWithIntrinsicBounds(dot(statusColor), null, null, null)
+                gravity = Gravity.CENTER_VERTICAL
+            },
+            lp(10)
+        )
         pairColumn.addView(card, lp(16))
 
         col.addView(Glass.button(this, "Поделиться кодом") { shareCode(code) }, lp(14))
@@ -530,11 +597,18 @@ class MainActivity : Activity(), SyncHub.Listener {
         }, lp(10))
 
         col.addView(
-            switchRow("Показывать рисунок на экране блокировки", SyncHub.prefs.autoLock) { on ->
-                SyncHub.prefs.autoLock = on
+            switchRow("Рисунок на главном экране", SyncHub.prefs.autoHome) { on ->
+                SyncHub.prefs.autoHome = on
                 if (on) SyncHub.flushWallpaper()
             },
             lp(18)
+        )
+        col.addView(
+            switchRow("Рисунок на экране блокировки", SyncHub.prefs.autoLock) { on ->
+                SyncHub.prefs.autoLock = on
+                if (on) SyncHub.flushWallpaper()
+            },
+            lp(10)
         )
         col.addView(
             switchRow("Обновлять, даже когда приложение закрыто", SyncHub.prefs.liveService) { on -> setLive(on) },
@@ -544,10 +618,60 @@ class MainActivity : Activity(), SyncHub.Listener {
             label("Фоновая синхронизация держит соединение и немного расходует батарею; в шторке будет значок.", 12f, 140),
             lp(6)
         )
+        addServerCard(col)
         col.addView(
             Glass.button(this, "Разорвать пару", 0x33FF453A, 0x66FF453A) { confirmUnpair() },
             lp(24)
         )
+    }
+
+    /** Server address and key (normally baked into the build); lets you point the app at your own Railway relay. */
+    private fun addServerCard(col: LinearLayout) {
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = Glass.drawable(this@MainActivity, 22f)
+            setPadding(dp(16f), dp(14f), dp(16f), dp(16f))
+        }
+        card.addView(label("СЕРВЕР", 12f, 150).apply { letterSpacing = 0.15f }, lp())
+        val current = SyncHub.prefs.effectiveRelayUrl
+        card.addView(
+            label(if (current.isBlank()) "не задан" else current.removePrefix("https://"), 14f, 200),
+            lp(6)
+        )
+        val urlIn = textField("https://имя.up.railway.app", SyncHub.prefs.relayUrl.orEmpty(), false)
+        val keyIn = textField("Ключ сервера (APP_KEY)", "", true)
+        card.addView(urlIn, lp(10))
+        card.addView(keyIn, lp(8))
+        card.addView(
+            Glass.button(this, "Сохранить сервер") {
+                val url = urlIn.text.toString().trim()
+                if (url.isNotEmpty() && !url.startsWith("https://", ignoreCase = true)) {
+                    toast("Адрес должен начинаться с https://")
+                } else {
+                    SyncHub.setServer(url, keyIn.text.toString())
+                    toast(if (url.isEmpty()) "Сервер по умолчанию" else "Сервер сохранён")
+                    refreshPair()
+                }
+            }.apply { textSize = 15f },
+            lp(10)
+        )
+        col.addView(card, lp(18))
+    }
+
+    private fun textField(hintText: String, value: String, secret: Boolean) = EditText(this).apply {
+        hint = hintText
+        setText(value)
+        setHintTextColor(Color.argb(110, 255, 255, 255))
+        setTextColor(Color.WHITE)
+        textSize = 15f
+        isSingleLine = true
+        inputType = if (secret) {
+            InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+        } else {
+            InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+        }
+        background = Glass.drawable(this@MainActivity, 18f)
+        setPadding(dp(14f), dp(12f), dp(14f), dp(12f))
     }
 
     private fun connectWith(text: String) {
@@ -562,7 +686,7 @@ class MainActivity : Activity(), SyncHub.Listener {
     }
 
     private fun shareCode(code: String) {
-        val text = "Давай рисовать вместе на экране блокировки! Код пары: ${PairCode.format(code)}"
+        val text = "Давай рисовать друг у друга на экранах! Код пары: ${PairCode.format(code)}"
         val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text)
         startActivity(Intent.createChooser(send, null))
     }

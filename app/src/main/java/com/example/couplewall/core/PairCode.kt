@@ -38,6 +38,9 @@ object PairCode {
 
     fun key(code: String): ByteArray = sha256("couple-wall/key/$code")
 
+    /** Proof of knowing the code, sent to the relay; the relay stores only its hash. Independent of topic and key. */
+    fun authToken(code: String): String = hex(sha256("couple-wall/auth/$code"))
+
     private fun sha256(s: String): ByteArray = MessageDigest.getInstance("SHA-256").digest(s.toByteArray(Charsets.UTF_8))
 
     private fun hex(b: ByteArray): String = b.joinToString("") { "%02x".format(it) }

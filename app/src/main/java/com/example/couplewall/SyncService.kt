@@ -40,8 +40,8 @@ class SyncService : Service() {
         }
         val n = builder
             .setContentTitle("Общий рисунок")
-            .setContentText("Экран блокировки обновляется")
-            .setSmallIcon(android.R.drawable.ic_menu_edit)
+            .setContentText("Экраны обновляются")
+            .setSmallIcon(R.drawable.ic_brush)
             .setOngoing(true)
             .build()
         if (Build.VERSION.SDK_INT >= 34) {

@@ -1,0 +1,20 @@
+name: Relay server tests
+
+on:
+  push:
+    paths: ['server/**']
+  pull_request:
+    paths: ['server/**']
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm test
